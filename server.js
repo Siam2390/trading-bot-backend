@@ -1,16 +1,7 @@
 const express = require("express");
 const axios = require("axios");
-const crypto = require("crypto");
 
 const app = express();
-app.use(express.json());
-
-// =====================
-// CONFIG
-// =====================
-const BASE_URL = "https://api.binance.com";
-const API_KEY = process.env.API_KEY;
-const API_SECRET = process.env.API_SECRET;
 
 // =====================
 // ROOT
@@ -20,38 +11,49 @@ app.get("/", (req, res) => {
 });
 
 // =====================
-// 📊 SIGNAL
+// 📊 SIGNAL (FIXED)
 // =====================
 app.get("/signal", async (req, res) => {
     try {
         const response = await axios.get(
-            `${BASE_URL}/api/v3/ticker/price?symbol=BTCUSDT`
+            "https://api.binance.com/api/v3/ticker/price",
+            {
+                params: { symbol: "BTCUSDT" }
+            }
         );
 
         const price = parseFloat(response.data.price);
 
-        let signal = "HOLD";
-        if (price % 2 === 0) signal = "BUY";
-        else signal = "SELL";
-
         res.json({
-            signal: signal,
-            price: price,
+            signal: price > 50000 ? "BUY" : "SELL",
+            price: price.toString(),
             rsi: "50"
         });
 
-    } catch (e) {
-        res.status(500).json({ error: "Signal error" });
+    } catch (error) {
+        console.log(error.message);
+        res.json({
+            signal: "HOLD",
+            price: "0",
+            rsi: "0"
+        });
     }
 });
 
 // =====================
-// 📈 CANDLES (CHART FIX)
+// 📈 CANDLES (FIXED)
 // =====================
 app.get("/candles", async (req, res) => {
     try {
         const response = await axios.get(
-            `${BASE_URL}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`
+            "https://api.binance.com/api/v3/klines",
+            {
+                params: {
+                    symbol: "BTCUSDT",
+                    interval: "1m",
+                    limit: 50
+                }
+            }
         );
 
         const candles = response.data.map(c => ({
@@ -63,8 +65,8 @@ app.get("/candles", async (req, res) => {
 
         res.json(candles);
 
-    } catch (e) {
-        res.status(500).json({ error: "Candles error" });
+    } catch (error) {
+        res.json([]);
     }
 });
 
@@ -79,8 +81,6 @@ app.get("/analytics", (req, res) => {
     });
 });
 
-// =====================
-// 🚀 START
 // =====================
 const PORT = process.env.PORT || 3000;
 
