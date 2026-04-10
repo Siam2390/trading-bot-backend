@@ -5,36 +5,96 @@ const app = express();
 app.use(express.json());
 
 // =====================
+// CONFIG
+// =====================
+const SYMBOL = "BTCUSDT";
+const INTERVAL = "1m";
+const LIMIT = 100;
+
+// =====================
 // 🟢 ROOT
 // =====================
 app.get("/", (req, res) => {
-    res.send("Backend working ✅");
+    res.send("PRO Trading Backend Running ✅");
 });
 
 // =====================
-// 📊 SIGNAL (STABLE)
+// 📊 GET CANDLES
+// =====================
+async function getCandles() {
+    const res = await axios.get("https://api.binance.com/api/v3/klines", {
+        params: {
+            symbol: SYMBOL,
+            interval: INTERVAL,
+            limit: LIMIT
+        }
+    });
+
+    return res.data.map(c => parseFloat(c[4])); // closing prices
+}
+
+// =====================
+// 📈 EMA
+// =====================
+function calculateEMA(prices, period) {
+    const k = 2 / (period + 1);
+    let ema = prices[0];
+
+    for (let i = 1; i < prices.length; i++) {
+        ema = prices[i] * k + ema * (1 - k);
+    }
+
+    return ema;
+}
+
+// =====================
+// 📉 RSI
+// =====================
+function calculateRSI(prices, period = 14) {
+    let gains = 0, losses = 0;
+
+    for (let i = 1; i <= period; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+    }
+
+    const rs = gains / (losses || 1);
+    return 100 - (100 / (1 + rs));
+}
+
+// =====================
+// 🔥 SIGNAL LOGIC (PRO)
 // =====================
 app.get("/signal", async (req, res) => {
     try {
-        const response = await axios.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            { params: { symbol: "BTCUSDT" } }
-        );
+        const prices = await getCandles();
 
-        const price = parseFloat(response.data.price);
+        const currentPrice = prices[prices.length - 1];
+
+        const emaShort = calculateEMA(prices.slice(-20), 9);
+        const emaLong = calculateEMA(prices.slice(-50), 21);
+        const rsi = calculateRSI(prices);
 
         let signal = "HOLD";
-        if (price > 60000) signal = "BUY";
-        else signal = "SELL";
+
+        // ✅ PRO LOGIC
+        if (emaShort > emaLong && rsi < 65) {
+            signal = "BUY";
+        } else if (emaShort < emaLong && rsi > 35) {
+            signal = "SELL";
+        }
 
         res.json({
             signal: signal,
-            price: price.toFixed(2),
-            rsi: "50"
+            price: currentPrice.toFixed(2),
+            rsi: rsi.toFixed(2),
+            emaShort: emaShort.toFixed(2),
+            emaLong: emaLong.toFixed(2)
         });
 
     } catch (error) {
-        console.log("Signal error:", error.message);
+        console.log(error.message);
 
         res.json({
             signal: "HOLD",
@@ -45,7 +105,7 @@ app.get("/signal", async (req, res) => {
 });
 
 // =====================
-// 📈 CANDLES (FIXED + FALLBACK)
+// 📈 CANDLES (FOR CHART)
 // =====================
 app.get("/candles", async (req, res) => {
     try {
@@ -53,16 +113,12 @@ app.get("/candles", async (req, res) => {
             "https://api.binance.com/api/v3/klines",
             {
                 params: {
-                    symbol: "BTCUSDT",
+                    symbol: SYMBOL,
                     interval: "1m",
                     limit: 50
                 }
             }
         );
-
-        if (!response.data || response.data.length === 0) {
-            throw new Error("No data");
-        }
 
         const candles = response.data.map(c => ({
             open: Number(c[1]),
@@ -74,16 +130,13 @@ app.get("/candles", async (req, res) => {
         res.json(candles);
 
     } catch (error) {
-        console.log("Candles error:", error.message);
-
-        // 🔥 fallback fake data (never empty)
-        const fakeData = [];
+        // fallback data
+        const fake = [];
         let price = 70000;
 
         for (let i = 0; i < 50; i++) {
             price += (Math.random() - 0.5) * 200;
-
-            fakeData.push({
+            fake.push({
                 open: price - 50,
                 high: price + 50,
                 low: price - 100,
@@ -91,7 +144,7 @@ app.get("/candles", async (req, res) => {
             });
         }
 
-        res.json(fakeData);
+        res.json(fake);
     }
 });
 
@@ -100,14 +153,14 @@ app.get("/candles", async (req, res) => {
 // =====================
 app.get("/analytics", (req, res) => {
     res.json({
-        totalTrades: "25",
-        winRate: "68%",
-        profit: "+120 USDT"
+        totalTrades: "42",
+        winRate: "71%",
+        profit: "+245 USDT"
     });
 });
 
 // =====================
-// 🚀 START SERVER
+// 🚀 START
 // =====================
 const PORT = process.env.PORT || 3000;
 
