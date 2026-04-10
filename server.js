@@ -7,37 +7,39 @@ app.use(express.json());
 // =====================
 // CONFIG
 // =====================
-const SYMBOL = "BTCUSDT";
+const SYMBOLS = ["BTCUSDT", "ETHUSDT"];
 const INTERVAL = "1m";
 const LIMIT = 100;
+
+// =====================
+// STORAGE (SIMULATION)
+// =====================
+let balance = 1000;
+let trades = [];
 
 // =====================
 // 🟢 ROOT
 // =====================
 app.get("/", (req, res) => {
-    res.send("PRO Trading Backend Running ✅");
+    res.send("PRO Trading System Running ✅");
 });
 
 // =====================
 // 📊 GET CANDLES
 // =====================
-async function getCandles() {
+async function getPrices(symbol) {
     const res = await axios.get("https://api.binance.com/api/v3/klines", {
-        params: {
-            symbol: SYMBOL,
-            interval: INTERVAL,
-            limit: LIMIT
-        }
+        params: { symbol, interval: INTERVAL, limit: LIMIT }
     });
 
-    return res.data.map(c => parseFloat(c[4])); // closing prices
+    return res.data.map(c => parseFloat(c[4]));
 }
 
 // =====================
 // 📈 EMA
 // =====================
-function calculateEMA(prices, period) {
-    const k = 2 / (period + 1);
+function EMA(prices, period) {
+    let k = 2 / (period + 1);
     let ema = prices[0];
 
     for (let i = 1; i < prices.length; i++) {
@@ -50,70 +52,119 @@ function calculateEMA(prices, period) {
 // =====================
 // 📉 RSI
 // =====================
-function calculateRSI(prices, period = 14) {
-    let gains = 0, losses = 0;
+function RSI(prices, period = 14) {
+    let gain = 0, loss = 0;
 
     for (let i = 1; i <= period; i++) {
-        const diff = prices[i] - prices[i - 1];
-        if (diff >= 0) gains += diff;
-        else losses -= diff;
+        let diff = prices[i] - prices[i - 1];
+        if (diff >= 0) gain += diff;
+        else loss -= diff;
     }
 
-    const rs = gains / (losses || 1);
+    let rs = gain / (loss || 1);
     return 100 - (100 / (1 + rs));
 }
 
 // =====================
-// 🔥 SIGNAL LOGIC (PRO)
+// 🔥 SIGNAL ENGINE
+// =====================
+async function getSignal(symbol) {
+    const prices = await getPrices(symbol);
+
+    const current = prices[prices.length - 1];
+
+    const ema9 = EMA(prices.slice(-20), 9);
+    const ema21 = EMA(prices.slice(-50), 21);
+    const rsi = RSI(prices);
+
+    let signal = "HOLD";
+
+    if (ema9 > ema21 && rsi < 65) signal = "BUY";
+    else if (ema9 < ema21 && rsi > 35) signal = "SELL";
+
+    return {
+        symbol,
+        signal,
+        price: current,
+        rsi: rsi.toFixed(2),
+        ema9: ema9.toFixed(2),
+        ema21: ema21.toFixed(2)
+    };
+}
+
+// =====================
+// 📊 SIGNAL API
 // =====================
 app.get("/signal", async (req, res) => {
-    try {
-        const prices = await getCandles();
+    const results = [];
 
-        const currentPrice = prices[prices.length - 1];
-
-        const emaShort = calculateEMA(prices.slice(-20), 9);
-        const emaLong = calculateEMA(prices.slice(-50), 21);
-        const rsi = calculateRSI(prices);
-
-        let signal = "HOLD";
-
-        // ✅ PRO LOGIC
-        if (emaShort > emaLong && rsi < 65) {
-            signal = "BUY";
-        } else if (emaShort < emaLong && rsi > 35) {
-            signal = "SELL";
-        }
-
-        res.json({
-            signal: signal,
-            price: currentPrice.toFixed(2),
-            rsi: rsi.toFixed(2),
-            emaShort: emaShort.toFixed(2),
-            emaLong: emaLong.toFixed(2)
-        });
-
-    } catch (error) {
-        console.log(error.message);
-
-        res.json({
-            signal: "HOLD",
-            price: "0",
-            rsi: "0"
-        });
+    for (let sym of SYMBOLS) {
+        const data = await getSignal(sym);
+        results.push(data);
     }
+
+    res.json(results);
 });
 
 // =====================
-// 📈 CANDLES (FOR CHART)
+// 🤖 AUTO TRADE ENGINE
+// =====================
+app.get("/auto-trade", async (req, res) => {
+
+    for (let sym of SYMBOLS) {
+        const data = await getSignal(sym);
+
+        let action = "NONE";
+
+        if (data.signal === "BUY") {
+            balance -= 10;
+            action = "BUY";
+
+            trades.push({
+                symbol: sym,
+                type: "BUY",
+                price: data.price,
+                time: new Date()
+            });
+
+        } else if (data.signal === "SELL") {
+            balance += 10;
+            action = "SELL";
+
+            trades.push({
+                symbol: sym,
+                type: "SELL",
+                price: data.price,
+                time: new Date()
+            });
+        }
+    }
+
+    res.json({
+        balance: balance.toFixed(2),
+        trades: trades.slice(-5) // last 5 trades
+    });
+});
+
+// =====================
+// 📜 TRADE HISTORY
+// =====================
+app.get("/history", (req, res) => {
+    res.json(trades);
+});
+
+// =====================
+// 📈 CANDLES
 // =====================
 app.get("/candles", async (req, res) => {
+    const symbol = req.query.symbol || "BTCUSDT";
+
     try {
         const response = await axios.get(
             "https://api.binance.com/api/v3/klines",
             {
                 params: {
-                    symbol: SYMBOL,
+                    symbol,
                     interval: "1m",
                     limit: 50
                 }
@@ -129,22 +180,8 @@ app.get("/candles", async (req, res) => {
 
         res.json(candles);
 
-    } catch (error) {
-        // fallback data
-        const fake = [];
-        let price = 70000;
-
-        for (let i = 0; i < 50; i++) {
-            price += (Math.random() - 0.5) * 200;
-            fake.push({
-                open: price - 50,
-                high: price + 50,
-                low: price - 100,
-                close: price
-            });
-        }
-
-        res.json(fake);
+    } catch {
+        res.json([]);
     }
 });
 
@@ -153,14 +190,11 @@ app.get("/candles", async (req, res) => {
 // =====================
 app.get("/analytics", (req, res) => {
     res.json({
-        totalTrades: "42",
-        winRate: "71%",
-        profit: "+245 USDT"
+        totalTrades: trades.length.toString(),
+        balance: balance.toFixed(2)
     });
 });
 
-// =====================
-// 🚀 START
 // =====================
 const PORT = process.env.PORT || 3000;
 
