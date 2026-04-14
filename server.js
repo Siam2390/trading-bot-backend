@@ -1,231 +1,105 @@
 const express = require("express");
 const axios = require("axios");
+const crypto = require("crypto");
+require("dotenv").config();
 
 const app = express();
 app.use(express.json());
+app.use(require("cors")());
 
-// =====================
-// CONFIG
-// =====================
-const SYMBOLS = ["BTCUSDT", "ETHUSDT"];
-const INTERVAL = "1m";
-const LIMIT = 100;
+const API_KEY = process.env.BINANCE_API_KEY;
+const SECRET = process.env.BINANCE_SECRET_KEY;
+const BASE = process.env.BASE_URL;
 
-// =====================
-// STORAGE (SIMULATION)
-// =====================
-let balance = 1000;
-let trades = [];
-
-// =====================
-// ROOT
-// =====================
-app.get("/", (req, res) => {
-    res.send("Trading Backend Running ✅");
-});
-
-// =====================
-// GET PRICE LIST
-// =====================
-async function getPrices(symbol) {
-    const res = await axios.get("https://api.binance.com/api/v3/klines", {
-        params: {
-            symbol: symbol,
-            interval: INTERVAL,
-            limit: LIMIT
-        }
-    });
-
-    return res.data.map(c => parseFloat(c[4]));
-}
-
-// =====================
-// EMA
-// =====================
-function EMA(prices, period) {
-    let k = 2 / (period + 1);
-    let ema = prices[0];
-
-    for (let i = 1; i < prices.length; i++) {
-        ema = prices[i] * k + ema * (1 - k);
-    }
-
-    return ema;
-}
-
-// =====================
-// RSI
-// =====================
-function RSI(prices, period = 14) {
-    let gain = 0, loss = 0;
-
-    for (let i = 1; i <= period; i++) {
-        let diff = prices[i] - prices[i - 1];
-        if (diff >= 0) gain += diff;
-        else loss -= diff;
-    }
-
-    let rs = gain / (loss || 1);
-    return 100 - (100 / (1 + rs));
-}
-
-// =====================
-// SIGNAL ENGINE
-// =====================
-async function getSignal(symbol) {
-    try {
-        const prices = await getPrices(symbol);
-
-        const current = prices[prices.length - 1];
-
-        const ema9 = EMA(prices.slice(-20), 9);
-        const ema21 = EMA(prices.slice(-50), 21);
-        const rsi = RSI(prices);
-
-        let signal = "HOLD";
-
-        if (ema9 > ema21 && rsi < 65) signal = "BUY";
-        else if (ema9 < ema21 && rsi > 35) signal = "SELL";
-
-        return {
-            symbol,
-            signal,
-            price: current.toFixed(2),
-            rsi: rsi.toFixed(2)
-        };
-
-    } catch (error) {
-        console.log("Signal error:", error.message);
-
-        return {
-            symbol,
-            signal: "HOLD",
-            price: "0",
-            rsi: "0"
-        };
-    }
-}
-
-// =====================
-// SIGNAL API
-// =====================
+// ================= SIGNAL =================
 app.get("/signal", async (req, res) => {
-    const results = [];
-
-    for (let sym of SYMBOLS) {
-        const data = await getSignal(sym);
-        results.push(data);
-    }
-
-    res.json(results);
-});
-
-// =====================
-// AUTO TRADE
-// =====================
-app.get("/auto-trade", async (req, res) => {
-
-    for (let sym of SYMBOLS) {
-        const data = await getSignal(sym);
-
-        if (data.signal === "BUY") {
-            balance -= 10;
-
-            trades.push({
-                symbol: sym,
-                type: "BUY",
-                price: data.price,
-                time: new Date()
-            });
-
-        } else if (data.signal === "SELL") {
-            balance += 10;
-
-            trades.push({
-                symbol: sym,
-                type: "SELL",
-                price: data.price,
-                time: new Date()
-            });
-        }
-    }
-
-    res.json({
-        balance: balance.toFixed(2),
-        lastTrades: trades.slice(-5)
-    });
-});
-
-// =====================
-// CANDLES (🔥 FIXED)
-// =====================
-app.get("/candles", async (req, res) => {
-
-    const symbol = req.query.symbol || "BTCUSDT";
-
     try {
-        const response = await axios.get(
-            "https://api.binance.com/api/v3/klines",
-            {
-                params: {
-                    symbol: symbol,
-                    interval: "1m",
-                    limit: 50
-                }
-            }
-        );
+        const r = await axios.get(`${BASE}/api/v3/ticker/price?symbol=BTCUSDT`);
+        const price = parseFloat(r.data.price);
 
-        const candles = response.data.map(c => ({
+        const signal = price % 2 === 0 ? "BUY" : "SELL";
+
+        res.json([{
+            symbol: "BTCUSDT",
+            price: price.toFixed(2),
+            signal: signal,
+            rsi: "50"
+        }]);
+    } catch {
+        res.json([]);
+    }
+});
+
+// ================= CANDLES =================
+app.get("/candles", async (req, res) => {
+    try {
+        const r = await axios.get(`${BASE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`);
+
+        const data = r.data.map(c => ({
             open: Number(c[1]),
             high: Number(c[2]),
             low: Number(c[3]),
             close: Number(c[4])
         }));
 
-        // ✅ If Binance gives data → send it
-        if (candles.length > 0) {
-            return res.json(candles);
-        }
-
-        throw new Error("Empty data");
-
-    } catch (error) {
-        console.log("Candles error:", error.message);
-
-        // 🔥 ALWAYS RETURN DATA (NO EMPTY)
-        let fake = [];
-        let price = 70000;
-
-        for (let i = 0; i < 50; i++) {
-            price += (Math.random() - 0.5) * 200;
-
-            fake.push({
-                open: price - 50,
-                high: price + 50,
-                low: price - 100,
-                close: price
-            });
-        }
-
-        res.json(fake);
+        res.json(data);
+    } catch {
+        res.json([]);
     }
 });
 
-// =====================
-// ANALYTICS
-// =====================
-app.get("/analytics", (req, res) => {
-    res.json({
-        totalTrades: trades.length.toString(),
-        balance: balance.toFixed(2)
-    });
+// ================= BALANCE =================
+app.get("/balance", async (req, res) => {
+    try {
+        const timestamp = Date.now();
+        const query = `timestamp=${timestamp}`;
+
+        const signature = crypto.createHmac("sha256", SECRET)
+            .update(query)
+            .digest("hex");
+
+        const r = await axios.get(
+            `${BASE}/api/v3/account?${query}&signature=${signature}`,
+            { headers: { "X-MBX-APIKEY": API_KEY } }
+        );
+
+        const usdt = r.data.balances.find(b => b.asset === "USDT");
+
+        res.json({
+            free: usdt.free
+        });
+
+    } catch {
+        res.json({ free: "0" });
+    }
 });
 
-// =====================
-// START SERVER
-// =====================
-const PORT = process.env.PORT || 3000;
+// ================= TRADE =================
+app.post("/trade", async (req, res) => {
+    try {
+        const side = req.body.side; // BUY / SELL
+        const symbol = "BTCUSDT";
+        const quantity = 0.001;
 
-app.listen(PORT, () => {
-    console.log("Server running on port " + PORT);
+        const timestamp = Date.now();
+
+        const query = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+
+        const signature = crypto.createHmac("sha256", SECRET)
+            .update(query)
+            .digest("hex");
+
+        const url = `${BASE}/api/v3/order?${query}&signature=${signature}`;
+
+        const r = await axios.post(url, {}, {
+            headers: { "X-MBX-APIKEY": API_KEY }
+        });
+
+        res.json(r.data);
+
+    } catch (err) {
+        res.json({ error: "Trade failed" });
+    }
 });
+
+app.listen(3000, () => console.log("Server running"));
