@@ -1,15 +1,23 @@
 const express = require("express");
 const axios = require("axios");
 const crypto = require("crypto");
+const cors = require("cors");
+
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
-app.use(require("cors")());
+app.use(cors());
 
+// ================= CONFIG =================
 const API_KEY = process.env.BINANCE_API_KEY;
 const SECRET = process.env.BINANCE_SECRET_KEY;
-const BASE = process.env.BASE_URL;
+const BASE = process.env.BASE_URL; // https://testnet.binance.vision
+
+// ================= HOME =================
+app.get("/", (req, res) => {
+    res.send("Trading Bot Backend Running ✅");
+});
 
 // ================= SIGNAL =================
 app.get("/signal", async (req, res) => {
@@ -25,7 +33,8 @@ app.get("/signal", async (req, res) => {
             signal: signal,
             rsi: "50"
         }]);
-    } catch {
+
+    } catch (err) {
         res.json([]);
     }
 });
@@ -33,7 +42,9 @@ app.get("/signal", async (req, res) => {
 // ================= CANDLES =================
 app.get("/candles", async (req, res) => {
     try {
-        const r = await axios.get(`${BASE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`);
+        const r = await axios.get(
+            `${BASE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`
+        );
 
         const data = r.data.map(c => ({
             open: Number(c[1]),
@@ -43,7 +54,8 @@ app.get("/candles", async (req, res) => {
         }));
 
         res.json(data);
-    } catch {
+
+    } catch (err) {
         res.json([]);
     }
 });
@@ -52,24 +64,30 @@ app.get("/candles", async (req, res) => {
 app.get("/balance", async (req, res) => {
     try {
         const timestamp = Date.now();
+
         const query = `timestamp=${timestamp}`;
 
-        const signature = crypto.createHmac("sha256", SECRET)
+        const signature = crypto
+            .createHmac("sha256", SECRET)
             .update(query)
             .digest("hex");
 
         const r = await axios.get(
             `${BASE}/api/v3/account?${query}&signature=${signature}`,
-            { headers: { "X-MBX-APIKEY": API_KEY } }
+            {
+                headers: {
+                    "X-MBX-APIKEY": API_KEY
+                }
+            }
         );
 
         const usdt = r.data.balances.find(b => b.asset === "USDT");
 
         res.json({
-            free: usdt.free
+            free: usdt?.free || "0"
         });
 
-    } catch {
+    } catch (err) {
         res.json({ free: "0" });
     }
 });
@@ -77,7 +95,7 @@ app.get("/balance", async (req, res) => {
 // ================= TRADE =================
 app.post("/trade", async (req, res) => {
     try {
-        const side = req.body.side; // BUY / SELL
+        const side = req.body.side; // BUY or SELL
         const symbol = "BTCUSDT";
         const quantity = 0.001;
 
@@ -85,21 +103,44 @@ app.post("/trade", async (req, res) => {
 
         const query = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
 
-        const signature = crypto.createHmac("sha256", SECRET)
+        const signature = crypto
+            .createHmac("sha256", SECRET)
             .update(query)
             .digest("hex");
 
         const url = `${BASE}/api/v3/order?${query}&signature=${signature}`;
 
         const r = await axios.post(url, {}, {
-            headers: { "X-MBX-APIKEY": API_KEY }
+            headers: {
+                "X-MBX-APIKEY": API_KEY
+            }
         });
 
-        res.json(r.data);
+        res.json({
+            status: "success",
+            data: r.data
+        });
 
     } catch (err) {
-        res.json({ error: "Trade failed" });
+        res.json({
+            status: "error",
+            message: err.message
+        });
     }
 });
 
-app.listen(3000, () => console.log("Server running"));
+// ================= HISTORY =================
+app.get("/history", (req, res) => {
+    res.json([
+        { action: "BUY BTC" },
+        { action: "SELL BTC" },
+        { action: "BUY BTC" }
+    ]);
+});
+
+// ================= START SERVER =================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
