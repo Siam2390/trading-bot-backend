@@ -1,146 +1,64 @@
 const express = require("express");
-const axios = require("axios");
-const crypto = require("crypto");
 const cors = require("cors");
-
+const axios = require("axios");
 require("dotenv").config();
 
 const app = express();
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
-// ================= CONFIG =================
-const API_KEY = process.env.BINANCE_API_KEY;
-const SECRET = process.env.BINANCE_SECRET_KEY;
-const BASE = process.env.BASE_URL; // https://testnet.binance.vision
-
-// ================= HOME =================
+// Test route
 app.get("/", (req, res) => {
-    res.send("Trading Bot Backend Running ✅");
+  res.send("Trading Bot Backend is Running 🚀");
 });
 
-// ================= SIGNAL =================
-app.get("/signal", async (req, res) => {
-    try {
-        const r = await axios.get(`${BASE}/api/v3/ticker/price?symbol=BTCUSDT`);
-        const price = parseFloat(r.data.price);
+// Analyze route
+app.post("/analyze", async (req, res) => {
+  try {
+    const { symbol, interval } = req.body;
 
-        const signal = price % 2 === 0 ? "BUY" : "SELL";
-
-        res.json([{
-            symbol: "BTCUSDT",
-            price: price.toFixed(2),
-            signal: signal,
-            rsi: "50"
-        }]);
-
-    } catch (err) {
-        res.json([]);
+    if (!symbol || !interval) {
+      return res.status(400).json({
+        error: "Symbol and interval are required"
+      });
     }
-});
 
-// ================= CANDLES =================
-app.get("/candles", async (req, res) => {
-    try {
-        const r = await axios.get(
-            `${BASE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`
-        );
+    // Get data from Binance API
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=50`;
 
-        const data = r.data.map(c => ({
-            open: Number(c[1]),
-            high: Number(c[2]),
-            low: Number(c[3]),
-            close: Number(c[4])
-        }));
+    const response = await axios.get(url);
+    const data = response.data;
 
-        res.json(data);
+    // Simple logic (demo)
+    let lastClose = parseFloat(data[data.length - 1][4]);
+    let firstClose = parseFloat(data[0][4]);
 
-    } catch (err) {
-        res.json([]);
+    let signal = "HOLD";
+
+    if (lastClose > firstClose) {
+      signal = "BUY";
+    } else if (lastClose < firstClose) {
+      signal = "SELL";
     }
+
+    res.json({
+      symbol,
+      interval,
+      signal,
+      lastPrice: lastClose
+    });
+
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({
+      error: "Something went wrong"
+    });
+  }
 });
 
-// ================= BALANCE =================
-app.get("/balance", async (req, res) => {
-    try {
-        const timestamp = Date.now();
-
-        const query = `timestamp=${timestamp}`;
-
-        const signature = crypto
-            .createHmac("sha256", SECRET)
-            .update(query)
-            .digest("hex");
-
-        const r = await axios.get(
-            `${BASE}/api/v3/account?${query}&signature=${signature}`,
-            {
-                headers: {
-                    "X-MBX-APIKEY": API_KEY
-                }
-            }
-        );
-
-        const usdt = r.data.balances.find(b => b.asset === "USDT");
-
-        res.json({
-            free: usdt?.free || "0"
-        });
-
-    } catch (err) {
-        res.json({ free: "0" });
-    }
-});
-
-// ================= TRADE =================
-app.post("/trade", async (req, res) => {
-    try {
-        const side = req.body.side; // BUY or SELL
-        const symbol = "BTCUSDT";
-        const quantity = 0.001;
-
-        const timestamp = Date.now();
-
-        const query = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
-
-        const signature = crypto
-            .createHmac("sha256", SECRET)
-            .update(query)
-            .digest("hex");
-
-        const url = `${BASE}/api/v3/order?${query}&signature=${signature}`;
-
-        const r = await axios.post(url, {}, {
-            headers: {
-                "X-MBX-APIKEY": API_KEY
-            }
-        });
-
-        res.json({
-            status: "success",
-            data: r.data
-        });
-
-    } catch (err) {
-        res.json({
-            status: "error",
-            message: err.message
-        });
-    }
-});
-
-// ================= HISTORY =================
-app.get("/history", (req, res) => {
-    res.json([
-        { action: "BUY BTC" },
-        { action: "SELL BTC" },
-        { action: "BUY BTC" }
-    ]);
-});
-
-// ================= START SERVER =================
-const PORT = process.env.PORT || 3000;
+// Start server
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
