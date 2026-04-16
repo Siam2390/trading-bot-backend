@@ -7,12 +7,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Test route
+/* ------------------ TEST ROUTE ------------------ */
 app.get("/", (req, res) => {
   res.send("Trading Bot Backend is Running 🚀");
 });
 
-// Analyze route
+/* ------------------ ANALYZE ROUTE ------------------ */
 app.post("/analyze", async (req, res) => {
   try {
     const { symbol, interval } = req.body;
@@ -23,13 +23,12 @@ app.post("/analyze", async (req, res) => {
       });
     }
 
-    // Get data from Binance API
+    // Binance API
     const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=50`;
 
     const response = await axios.get(url);
     const data = response.data;
 
-    // Simple logic (demo)
     let lastClose = parseFloat(data[data.length - 1][4]);
     let firstClose = parseFloat(data[0][4]);
 
@@ -56,7 +55,14 @@ app.post("/analyze", async (req, res) => {
   }
 });
 
-// Start server
+/* ------------------ BALANCE ROUTE (NEW) ------------------ */
+app.get("/balance", (req, res) => {
+  res.json({
+    free: 1000.00   // fake demo balance
+  });
+});
+
+/* ------------------ START SERVER ------------------ */
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
