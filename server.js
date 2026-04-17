@@ -1,78 +1,72 @@
+id="binance1"
 require("dotenv").config();
 const express = require("express");
-const Binance = require("node-binance-api");
+const axios = require("axios");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
 
-const binance = new Binance().options({
-  APIKEY: process.env.API_KEY,
-  APISECRET: process.env.API_SECRET,
-});
+const API_KEY = process.env.BINANCE_API_KEY;
+const API_SECRET = process.env.BINANCE_SECRET_KEY;
+const BASE_URL = "https://api.binance.com";
 
+// 🔐 SIGN FUNCTION
+function sign(query) {
+    return crypto
+        .createHmac("sha256", API_SECRET)
+        .update(query)
+        .digest("hex");
+}
 
-// 🔥 GET BALANCE
+// 💰 BALANCE
 app.get("/balance", async (req, res) => {
-  try {
-    const balances = await binance.balance();
-    res.json({
-      free: balances.USDT.available
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    try {
+        const timestamp = Date.now();
+        const query = `timestamp=${timestamp}`;
+        const signature = sign(query);
 
+        const response = await axios.get(
+            `${BASE_URL}/api/v3/account?${query}&signature=${signature}`,
+            {
+                headers: { "X-MBX-APIKEY": API_KEY },
+            }
+        );
 
-// 🔥 MARKET ANALYSIS (SIMPLE STRATEGY)
-app.post("/analyze", async (req, res) => {
-  const { symbol, interval } = req.body;
+        const usdt = response.data.balances.find(b => b.asset === "USDT");
 
-  try {
-    const candles = await binance.candlesticks(symbol, interval);
+        res.json({ free: parseFloat(usdt.free) });
 
-    const closes = candles.map(c => parseFloat(c[4]));
-
-    const last = closes[closes.length - 1];
-    const prev = closes[closes.length - 2];
-
-    let signal = "HOLD";
-
-    if (last > prev) signal = "BUY";
-    if (last < prev) signal = "SELL";
-
-    res.json({
-      signal,
-      lastPrice: last
-    });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// 🔥 PLACE ORDER (REAL TRADING)
-app.post("/trade", async (req, res) => {
-  const { symbol, side, quantity } = req.body;
-
-  try {
-    let result;
-
-    if (side === "BUY") {
-      result = await binance.marketBuy(symbol, quantity);
-    } else {
-      result = await binance.marketSell(symbol, quantity);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-
-    res.json(result);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
+// 🚀 TRADE (BUY / SELL)
+app.post("/trade", async (req, res) => {
+    try {
+        const { symbol, side, quantity } = req.body;
+
+        const timestamp = Date.now();
+
+        const query = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+        const signature = sign(query);
+
+        const response = await axios.post(
+            `${BASE_URL}/api/v3/order?${query}&signature=${signature}`,
+            {},
+            {
+                headers: { "X-MBX-APIKEY": API_KEY },
+            }
+        );
+
+        res.json({ status: "SUCCESS", data: response.data });
+
+    } catch (err) {
+        res.status(500).json({ status: "FAILED", error: err.message });
+    }
+});
 
 app.listen(3000, () => {
-  console.log("🚀 Trading Bot Backend Running");
+    console.log("🚀 Binance Trading Backend Running");
 });
