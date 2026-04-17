@@ -1,72 +1,80 @@
-id="binance1"
+id="backend_full_ai"
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
-const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
 
-const API_KEY = process.env.BINANCE_API_KEY;
-const API_SECRET = process.env.BINANCE_SECRET_KEY;
-const BASE_URL = "https://api.binance.com";
+const NEWS_API = "https://newsapi.org/v2/everything?q=crypto&apiKey=" + process.env.NEWS_KEY;
 
-// 🔐 SIGN FUNCTION
-function sign(query) {
-    return crypto
-        .createHmac("sha256", API_SECRET)
-        .update(query)
-        .digest("hex");
+// 🔥 GET MARKET DATA FROM BINANCE
+async function getPrice(symbol) {
+    const res = await axios.get(
+        `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
+    );
+    return parseFloat(res.data.price);
 }
 
-// 💰 BALANCE
-app.get("/balance", async (req, res) => {
+// 🔥 SIMPLE RSI (FAKE BUT WORKING)
+function calculateRSI() {
+    return Math.floor(Math.random() * 100); // simulate
+}
+
+// 🔥 TREND (EMA SIMULATION)
+function getTrend() {
+    return Math.random() > 0.5 ? "BUY" : "SELL";
+}
+
+// 🌐 NEWS SENTIMENT
+async function getNewsSentiment() {
     try {
-        const timestamp = Date.now();
-        const query = `timestamp=${timestamp}`;
-        const signature = sign(query);
+        const res = await axios.get(NEWS_API);
+        const articles = res.data.articles;
 
-        const response = await axios.get(
-            `${BASE_URL}/api/v3/account?${query}&signature=${signature}`,
-            {
-                headers: { "X-MBX-APIKEY": API_KEY },
-            }
-        );
+        let score = 0;
 
-        const usdt = response.data.balances.find(b => b.asset === "USDT");
+        articles.slice(0, 5).forEach(a => {
+            if (a.title.includes("rise") || a.title.includes("bull"))
+                score++;
+            if (a.title.includes("crash") || a.title.includes("fall"))
+                score--;
+        });
 
-        res.json({ free: parseFloat(usdt.free) });
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        return score; // positive = good news
+    } catch {
+        return 0;
     }
-});
+}
 
-// 🚀 TRADE (BUY / SELL)
-app.post("/trade", async (req, res) => {
-    try {
-        const { symbol, side, quantity } = req.body;
+// 🤖 AI ANALYSIS
+app.post("/analyze", async (req, res) => {
 
-        const timestamp = Date.now();
+    const { symbol } = req.body;
 
-        const query = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
-        const signature = sign(query);
+    const price = await getPrice(symbol);
+    const rsi = calculateRSI();
+    const trend = getTrend();
+    const news = await getNewsSentiment();
 
-        const response = await axios.post(
-            `${BASE_URL}/api/v3/order?${query}&signature=${signature}`,
-            {},
-            {
-                headers: { "X-MBX-APIKEY": API_KEY },
-            }
-        );
+    let signal = "HOLD";
 
-        res.json({ status: "SUCCESS", data: response.data });
-
-    } catch (err) {
-        res.status(500).json({ status: "FAILED", error: err.message });
+    // 🧠 FINAL DECISION
+    if (rsi < 30 && trend === "BUY" && news >= 0) {
+        signal = "BUY";
     }
+
+    if (rsi > 70 && trend === "SELL" && news <= 0) {
+        signal = "SELL";
+    }
+
+    res.json({
+        signal: signal,
+        lastPrice: price,
+        rsi: rsi
+    });
 });
 
 app.listen(3000, () => {
-    console.log("🚀 Binance Trading Backend Running");
+    console.log("🚀 AI Trading Backend Running");
 });
