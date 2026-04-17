@@ -1,70 +1,78 @@
-const express = require("express");
-const cors = require("cors");
-const axios = require("axios");
 require("dotenv").config();
+const express = require("express");
+const Binance = require("node-binance-api");
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-/* ------------------ TEST ROUTE ------------------ */
-app.get("/", (req, res) => {
-  res.send("Trading Bot Backend is Running 🚀");
+const binance = new Binance().options({
+  APIKEY: process.env.API_KEY,
+  APISECRET: process.env.API_SECRET,
 });
 
-/* ------------------ ANALYZE ROUTE ------------------ */
-app.post("/analyze", async (req, res) => {
+
+// 🔥 GET BALANCE
+app.get("/balance", async (req, res) => {
   try {
-    const { symbol, interval } = req.body;
-
-    if (!symbol || !interval) {
-      return res.status(400).json({
-        error: "Symbol and interval are required"
-      });
-    }
-
-    // Binance API
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=50`;
-
-    const response = await axios.get(url);
-    const data = response.data;
-
-    let lastClose = parseFloat(data[data.length - 1][4]);
-    let firstClose = parseFloat(data[0][4]);
-
-    let signal = "HOLD";
-
-    if (lastClose > firstClose) {
-      signal = "BUY";
-    } else if (lastClose < firstClose) {
-      signal = "SELL";
-    }
-
+    const balances = await binance.balance();
     res.json({
-      symbol,
-      interval,
-      signal,
-      lastPrice: lastClose
+      free: balances.USDT.available
     });
-
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({
-      error: "Something went wrong"
-    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-/* ------------------ BALANCE ROUTE (NEW) ------------------ */
-app.get("/balance", (req, res) => {
-  res.json({
-    free: 1000.00   // fake demo balance
-  });
+
+// 🔥 MARKET ANALYSIS (SIMPLE STRATEGY)
+app.post("/analyze", async (req, res) => {
+  const { symbol, interval } = req.body;
+
+  try {
+    const candles = await binance.candlesticks(symbol, interval);
+
+    const closes = candles.map(c => parseFloat(c[4]));
+
+    const last = closes[closes.length - 1];
+    const prev = closes[closes.length - 2];
+
+    let signal = "HOLD";
+
+    if (last > prev) signal = "BUY";
+    if (last < prev) signal = "SELL";
+
+    res.json({
+      signal,
+      lastPrice: last
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-/* ------------------ START SERVER ------------------ */
-const PORT = process.env.PORT || 10000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// 🔥 PLACE ORDER (REAL TRADING)
+app.post("/trade", async (req, res) => {
+  const { symbol, side, quantity } = req.body;
+
+  try {
+    let result;
+
+    if (side === "BUY") {
+      result = await binance.marketBuy(symbol, quantity);
+    } else {
+      result = await binance.marketSell(symbol, quantity);
+    }
+
+    res.json(result);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.listen(3000, () => {
+  console.log("🚀 Trading Bot Backend Running");
 });
