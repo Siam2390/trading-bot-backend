@@ -6,7 +6,7 @@ const Binance = require("binance-api-node").default;
 const app = express();
 app.use(express.json());
 
-// ✅ Binance Client (safe)
+// ✅ Binance Client
 const client = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_SECRET_KEY,
@@ -20,7 +20,7 @@ const SYMBOL = "BTCUSDT";
 const MAX_TRADE_USDT = 10;
 
 // ==========================
-// ✅ SAFE PRICE FUNCTION
+// 📊 SAFE PRICE FUNCTION
 // ==========================
 async function getPrice(symbol) {
     try {
@@ -31,19 +31,48 @@ async function getPrice(symbol) {
         return parseFloat(res.data.price);
     } catch (err) {
         console.log("Price error:", err.message);
-        return 0; // fallback (prevents crash)
+        return 0;
     }
 }
 
 // ==========================
-// ✅ HOME ROUTE
+// 📰 SAFE NEWS FUNCTION
+// ==========================
+async function getNewsScore() {
+    try {
+        const res = await axios.get(
+            `https://newsapi.org/v2/everything?q=crypto&apiKey=${process.env.NEWS_KEY}`,
+            { timeout: 5000 }
+        );
+
+        const articles = res.data.articles || [];
+
+        let score = 0;
+
+        articles.slice(0, 5).forEach(a => {
+            const title = (a.title || "").toLowerCase();
+
+            if (title.includes("bull") || title.includes("rise")) score++;
+            if (title.includes("crash") || title.includes("fall")) score--;
+        });
+
+        return score;
+
+    } catch (err) {
+        console.log("News error:", err.message);
+        return 0; // 🔒 prevents crash
+    }
+}
+
+// ==========================
+// 🏠 HOME
 // ==========================
 app.get("/", (req, res) => {
     res.send("🚀 Trading Bot Backend Running");
 });
 
 // ==========================
-// ✅ ANALYZE (GET - browser)
+// 📊 ANALYZE (GET for browser)
 // ==========================
 app.get("/analyze", async (req, res) => {
     try {
@@ -52,44 +81,60 @@ app.get("/analyze", async (req, res) => {
         res.json({
             signal: "TEST",
             lastPrice: price,
-            rsi: 50
+            rsi: 50,
+            news: 0
         });
 
-    } catch (err) {
+    } catch {
         res.json({
             signal: "ERROR",
             lastPrice: 0,
-            rsi: 0
+            rsi: 0,
+            news: 0
         });
     }
 });
 
 // ==========================
-// ✅ ANALYZE (POST - app)
+// 🤖 ANALYZE (POST for app)
 // ==========================
 app.post("/analyze", async (req, res) => {
     try {
 
         const price = await getPrice(SYMBOL);
 
-        // 🔥 simple stable logic (no crash)
         const rsi = Math.floor(Math.random() * 100);
         const trend = Math.random() > 0.5 ? "BUY" : "SELL";
 
+        // 🔥 SAFE NEWS
+        let newsScore = 0;
+        try {
+            newsScore = await getNewsScore();
+        } catch {
+            newsScore = 0;
+        }
+
         let signal = "HOLD";
 
-        if (rsi < 30 && trend === "BUY") {
+        // 🧠 AI + NEWS LOGIC
+        if (rsi < 30 && trend === "BUY" && newsScore >= 0) {
             signal = "BUY";
         }
 
-        if (rsi > 70 && trend === "SELL") {
+        if (rsi > 70 && trend === "SELL" && newsScore <= 0) {
             signal = "SELL";
+        }
+
+        // 🚫 BAD NEWS FILTER
+        if (newsScore < -2) {
+            signal = "HOLD";
         }
 
         res.json({
             signal,
             lastPrice: price,
-            rsi
+            rsi,
+            news: newsScore
         });
 
     } catch (err) {
@@ -98,13 +143,14 @@ app.post("/analyze", async (req, res) => {
         res.json({
             signal: "ERROR",
             lastPrice: 0,
-            rsi: 0
+            rsi: 0,
+            news: 0
         });
     }
 });
 
 // ==========================
-// 💰 TRADE (REAL SAFE)
+// 💰 TRADE
 // ==========================
 app.post("/trade", async (req, res) => {
 
@@ -132,7 +178,7 @@ app.post("/trade", async (req, res) => {
 
         res.json({
             status: "SUCCESS",
-            order: order
+            order
         });
 
     } catch (err) {
@@ -159,10 +205,8 @@ app.get("/balance", async (req, res) => {
             free: usdt ? parseFloat(usdt.free) : 0
         });
 
-    } catch (err) {
-        res.json({
-            free: 0
-        });
+    } catch {
+        res.json({ free: 0 });
     }
 });
 
