@@ -6,7 +6,7 @@ const Binance = require("binance-api-node").default;
 const app = express();
 app.use(express.json());
 
-// ✅ Binance Client
+// ✅ Binance
 const client = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_SECRET_KEY,
@@ -15,51 +15,44 @@ const client = Binance({
         : "https://api.binance.com"
 });
 
-// 🔒 SETTINGS
 const SYMBOL = "BTCUSDT";
 const MAX_TRADE_USDT = 10;
 
 // ==========================
-// 📊 GET PRICE (SAFE)
+// 📊 PRICE
 // ==========================
 async function getPrice(symbol) {
     try {
         const res = await axios.get(
-            `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
-            { timeout: 5000 }
+            `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
         );
         return parseFloat(res.data.price);
-    } catch (err) {
-        console.log("Price error:", err.message);
+    } catch {
         return 0;
     }
 }
 
 // ==========================
-// 📰 NEWS (SAFE)
+// 📰 NEWS
 // ==========================
 async function getNewsScore() {
     try {
         const res = await axios.get(
-            `https://newsapi.org/v2/everything?q=crypto&apiKey=${process.env.NEWS_KEY}`,
-            { timeout: 5000 }
+            `https://newsapi.org/v2/everything?q=crypto&apiKey=${process.env.NEWS_KEY}`
         );
-
-        const articles = res.data.articles || [];
 
         let score = 0;
 
-        articles.slice(0, 5).forEach(a => {
-            const title = (a.title || "").toLowerCase();
+        (res.data.articles || []).slice(0, 5).forEach(a => {
+            const t = (a.title || "").toLowerCase();
 
-            if (title.includes("bull") || title.includes("rise")) score++;
-            if (title.includes("crash") || title.includes("fall")) score--;
+            if (t.includes("bull") || t.includes("rise")) score++;
+            if (t.includes("crash") || t.includes("fall")) score--;
         });
 
         return score;
 
-    } catch (err) {
-        console.log("News error:", err.message);
+    } catch {
         return 0;
     }
 }
@@ -68,11 +61,11 @@ async function getNewsScore() {
 // 🏠 HOME
 // ==========================
 app.get("/", (req, res) => {
-    res.send("🚀 Trading Bot Backend Running");
+    res.send("🚀 Trading Bot Running");
 });
 
 // ==========================
-// 📊 ANALYZE (GET)
+// ✅ ANALYZE (GET)
 // ==========================
 app.get("/analyze", async (req, res) => {
     try {
@@ -80,71 +73,47 @@ app.get("/analyze", async (req, res) => {
 
         res.json({
             signal: "TEST",
-            lastPrice: price,
-            rsi: 50,
-            news: 0
+            lastPrice: price
         });
     } catch {
-        res.json({
-            signal: "ERROR",
-            lastPrice: 0
-        });
+        res.json({ signal: "ERROR" });
     }
 });
 
 // ==========================
-// 🤖 ANALYZE (AI LOGIC)
+// 🤖 ANALYZE (POST)
 // ==========================
 app.post("/analyze", async (req, res) => {
     try {
-
         const price = await getPrice(SYMBOL);
-
-        // 🔥 simulated indicators
         const rsi = Math.floor(Math.random() * 100);
         const trend = Math.random() > 0.5 ? "BUY" : "SELL";
+        const news = await getNewsScore();
 
-        let news = 0;
-        try {
-            news = await getNewsScore();
-        } catch {
-            news = 0;
-        }
-
-        // 🧠 SIMPLE AI SCORE
         let score = 0;
 
-        // RSI
         if (rsi < 30) score += 2;
         if (rsi > 70) score -= 2;
 
-        // Trend
         if (trend === "BUY") score += 1;
         else score -= 1;
 
-        // News
         score += news;
 
         let signal = "HOLD";
-
         if (score >= 2) signal = "BUY";
         else if (score <= -2) signal = "SELL";
 
         res.json({
-            signal: signal,
-            confidence: score,
-            lastPrice: price,
-            rsi: rsi,
-            news: news
+            signal,
+            price,
+            rsi,
+            news,
+            score
         });
 
-    } catch (err) {
-        console.log("Analyze error:", err.message);
-
-        res.json({
-            signal: "ERROR",
-            lastPrice: 0
-        });
+    } catch {
+        res.json({ signal: "ERROR" });
     }
 });
 
@@ -152,41 +121,21 @@ app.post("/analyze", async (req, res) => {
 // 💰 TRADE
 // ==========================
 app.post("/trade", async (req, res) => {
-
     try {
-        const { symbol, side } = req.body;
-
-        if (symbol !== SYMBOL) {
-            return res.json({ status: "Invalid symbol" });
-        }
-
-        const price = await getPrice(symbol);
-
-        if (price === 0) {
-            return res.json({ status: "Price error" });
-        }
-
+        const price = await getPrice(SYMBOL);
         const quantity = (MAX_TRADE_USDT / price).toFixed(6);
 
         const order = await client.order({
-            symbol: symbol,
-            side: side,
+            symbol: SYMBOL,
+            side: req.body.side,
             type: "MARKET",
-            quantity: quantity
+            quantity
         });
 
-        res.json({
-            status: "SUCCESS",
-            order
-        });
+        res.json({ status: "SUCCESS", order });
 
     } catch (err) {
-        console.log("Trade error:", err.message);
-
-        res.json({
-            status: "FAILED",
-            error: err.message
-        });
+        res.json({ status: "FAILED", error: err.message });
     }
 });
 
@@ -194,15 +143,11 @@ app.post("/trade", async (req, res) => {
 // 💰 BALANCE
 // ==========================
 app.get("/balance", async (req, res) => {
-
     try {
-        const account = await client.accountInfo();
+        const acc = await client.accountInfo();
+        const usdt = acc.balances.find(b => b.asset === "USDT");
 
-        const usdt = account.balances.find(b => b.asset === "USDT");
-
-        res.json({
-            free: usdt ? parseFloat(usdt.free) : 0
-        });
+        res.json({ free: usdt ? usdt.free : 0 });
 
     } catch {
         res.json({ free: 0 });
@@ -210,7 +155,16 @@ app.get("/balance", async (req, res) => {
 });
 
 // ==========================
-// 🚀 START SERVER
+// ❌ HANDLE WRONG ROUTES
+// ==========================
+app.use((req, res) => {
+    res.status(404).json({
+        error: "Route not found. Use /analyze"
+    });
+});
+
+// ==========================
+// 🚀 START
 // ==========================
 const PORT = process.env.PORT || 3000;
 
