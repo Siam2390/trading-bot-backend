@@ -20,7 +20,7 @@ const SYMBOL = "BTCUSDT";
 const MAX_TRADE_USDT = 10;
 
 // ==========================
-// 📊 SAFE PRICE FUNCTION
+// 📊 GET PRICE (SAFE)
 // ==========================
 async function getPrice(symbol) {
     try {
@@ -36,7 +36,7 @@ async function getPrice(symbol) {
 }
 
 // ==========================
-// 📰 SAFE NEWS FUNCTION
+// 📰 NEWS (SAFE)
 // ==========================
 async function getNewsScore() {
     try {
@@ -60,7 +60,7 @@ async function getNewsScore() {
 
     } catch (err) {
         console.log("News error:", err.message);
-        return 0; // 🔒 prevents crash
+        return 0;
     }
 }
 
@@ -72,7 +72,7 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 📊 ANALYZE (GET for browser)
+// 📊 ANALYZE (GET)
 // ==========================
 app.get("/analyze", async (req, res) => {
     try {
@@ -84,57 +84,58 @@ app.get("/analyze", async (req, res) => {
             rsi: 50,
             news: 0
         });
-
     } catch {
         res.json({
             signal: "ERROR",
-            lastPrice: 0,
-            rsi: 0,
-            news: 0
+            lastPrice: 0
         });
     }
 });
 
 // ==========================
-// 🤖 ANALYZE (POST for app)
+// 🤖 ANALYZE (AI LOGIC)
 // ==========================
 app.post("/analyze", async (req, res) => {
     try {
 
         const price = await getPrice(SYMBOL);
 
+        // 🔥 simulated indicators
         const rsi = Math.floor(Math.random() * 100);
         const trend = Math.random() > 0.5 ? "BUY" : "SELL";
 
-        // 🔥 SAFE NEWS
-        let newsScore = 0;
+        let news = 0;
         try {
-            newsScore = await getNewsScore();
+            news = await getNewsScore();
         } catch {
-            newsScore = 0;
+            news = 0;
         }
+
+        // 🧠 SIMPLE AI SCORE
+        let score = 0;
+
+        // RSI
+        if (rsi < 30) score += 2;
+        if (rsi > 70) score -= 2;
+
+        // Trend
+        if (trend === "BUY") score += 1;
+        else score -= 1;
+
+        // News
+        score += news;
 
         let signal = "HOLD";
 
-        // 🧠 AI + NEWS LOGIC
-        if (rsi < 30 && trend === "BUY" && newsScore >= 0) {
-            signal = "BUY";
-        }
-
-        if (rsi > 70 && trend === "SELL" && newsScore <= 0) {
-            signal = "SELL";
-        }
-
-        // 🚫 BAD NEWS FILTER
-        if (newsScore < -2) {
-            signal = "HOLD";
-        }
+        if (score >= 2) signal = "BUY";
+        else if (score <= -2) signal = "SELL";
 
         res.json({
-            signal,
+            signal: signal,
+            confidence: score,
             lastPrice: price,
-            rsi,
-            news: newsScore
+            rsi: rsi,
+            news: news
         });
 
     } catch (err) {
@@ -142,9 +143,7 @@ app.post("/analyze", async (req, res) => {
 
         res.json({
             signal: "ERROR",
-            lastPrice: 0,
-            rsi: 0,
-            news: 0
+            lastPrice: 0
         });
     }
 });
