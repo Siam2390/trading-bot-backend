@@ -6,7 +6,7 @@ const Binance = require("binance-api-node").default;
 const app = express();
 app.use(express.json());
 
-// ✅ Binance client
+// ✅ Binance Client (Testnet or Live)
 const client = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_SECRET_KEY,
@@ -16,8 +16,11 @@ const client = Binance({
 });
 
 // 🔒 SAFETY SETTINGS
-const MAX_TRADE_USDT = 10; // max $10 per trade
-const ALLOWED_SYMBOL = "BTCUSDT";
+const MAX_TRADE_USDT = 10;   // max $10 per trade
+const SYMBOL = "BTCUSDT";
+
+// 🌐 NEWS API
+const NEWS_API = `https://newsapi.org/v2/everything?q=crypto&apiKey=${process.env.NEWS_KEY}`;
 
 // 📊 GET PRICE
 async function getPrice(symbol) {
@@ -27,40 +30,99 @@ async function getPrice(symbol) {
     return parseFloat(res.data.price);
 }
 
-// 🤖 ANALYZE (same as before)
-app.post("/analyze", async (req, res) => {
+// 📉 SIMPLE RSI (SIMULATED)
+function getRSI() {
+    return Math.floor(Math.random() * 100);
+}
 
-    const price = await getPrice("BTCUSDT");
+// 📈 TREND (SIMULATED)
+function getTrend() {
+    return Math.random() > 0.5 ? "BUY" : "SELL";
+}
 
-    const rsi = Math.floor(Math.random() * 100);
-    const trend = Math.random() > 0.5 ? "BUY" : "SELL";
+// 📰 NEWS SENTIMENT
+async function getNewsScore() {
+    try {
+        const res = await axios.get(NEWS_API);
+        const articles = res.data.articles || [];
 
-    let signal = "HOLD";
+        let score = 0;
 
-    if (rsi < 30 && trend === "BUY") signal = "BUY";
-    if (rsi > 70 && trend === "SELL") signal = "SELL";
+        articles.slice(0, 5).forEach(a => {
+            const title = a.title.toLowerCase();
+
+            if (title.includes("bull") || title.includes("rise")) score++;
+            if (title.includes("crash") || title.includes("fall")) score--;
+        });
+
+        return score;
+    } catch (e) {
+        return 0;
+    }
+}
+
+//
+// 🔥 ROUTES
+//
+
+// ✅ TEST ROUTE (BROWSER)
+app.get("/", (req, res) => {
+    res.send("🚀 Trading Bot Backend Running");
+});
+
+// ✅ ANALYZE (GET for browser)
+app.get("/analyze", async (req, res) => {
+    const price = await getPrice(SYMBOL);
 
     res.json({
-        signal,
+        signal: "TEST",
         lastPrice: price,
-        rsi
+        rsi: 50
     });
 });
 
-// 💰 REAL TRADE (SAFE)
+// ✅ ANALYZE (POST for app)
+app.post("/analyze", async (req, res) => {
+
+    try {
+        const price = await getPrice(SYMBOL);
+        const rsi = getRSI();
+        const trend = getTrend();
+        const news = await getNewsScore();
+
+        let signal = "HOLD";
+
+        // 🧠 AI LOGIC
+        if (rsi < 30 && trend === "BUY" && news >= 0) {
+            signal = "BUY";
+        }
+
+        if (rsi > 70 && trend === "SELL" && news <= 0) {
+            signal = "SELL";
+        }
+
+        res.json({
+            signal: signal,
+            lastPrice: price,
+            rsi: rsi
+        });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 💰 REAL TRADE
 app.post("/trade", async (req, res) => {
 
     try {
         const { symbol, side } = req.body;
 
-        // 🔒 SECURITY CHECKS
-        if (symbol !== ALLOWED_SYMBOL) {
+        if (symbol !== SYMBOL) {
             return res.status(400).json({ error: "Invalid symbol" });
         }
 
         const price = await getPrice(symbol);
-
-        // calculate small quantity
         const quantity = (MAX_TRADE_USDT / price).toFixed(6);
 
         const order = await client.order({
@@ -94,7 +156,7 @@ app.get("/balance", async (req, res) => {
         const usdt = account.balances.find(b => b.asset === "USDT");
 
         res.json({
-            free: parseFloat(usdt.free)
+            free: usdt ? parseFloat(usdt.free) : 0
         });
 
     } catch (err) {
@@ -102,6 +164,11 @@ app.get("/balance", async (req, res) => {
     }
 });
 
-app.listen(3000, () => {
-    console.log("🚀 Trading Bot LIVE");
+//
+// 🚀 START SERVER
+//
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
 });
