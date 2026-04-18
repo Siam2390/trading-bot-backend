@@ -2,11 +2,34 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const Binance = require("binance-api-node").default;
+const mongoose = require("mongoose");
 
 const app = express();
 app.use(express.json());
 
-// ✅ Binance
+// ==========================
+// 🗄️ MONGODB CONNECT
+// ==========================
+mongoose.connect(process.env.MONGO_URI)
+.then(() => console.log("✅ MongoDB Connected"))
+.catch(err => console.log("Mongo Error:", err));
+
+// ==========================
+// 📊 SCHEMA
+// ==========================
+const tradeSchema = new mongoose.Schema({
+    side: String,
+    price: Number,
+    quantity: Number,
+    profit: Number,
+    time: String
+});
+
+const Trade = mongoose.model("Trade", tradeSchema);
+
+// ==========================
+// 💰 BINANCE
+// ==========================
 const client = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_SECRET_KEY,
@@ -46,8 +69,8 @@ async function getNewsScore() {
         (res.data.articles || []).slice(0, 5).forEach(a => {
             const t = (a.title || "").toLowerCase();
 
-            if (t.includes("bull") || t.includes("rise")) score++;
-            if (t.includes("crash") || t.includes("fall")) score--;
+            if (t.includes("bull")) score++;
+            if (t.includes("crash")) score--;
         });
 
         return score;
@@ -61,27 +84,11 @@ async function getNewsScore() {
 // 🏠 HOME
 // ==========================
 app.get("/", (req, res) => {
-    res.send("🚀 Trading Bot Running");
+    res.send("🚀 Trading Bot Running with DB");
 });
 
 // ==========================
-// ✅ ANALYZE (GET)
-// ==========================
-app.get("/analyze", async (req, res) => {
-    try {
-        const price = await getPrice(SYMBOL);
-
-        res.json({
-            signal: "TEST",
-            lastPrice: price
-        });
-    } catch {
-        res.json({ signal: "ERROR" });
-    }
-});
-
-// ==========================
-// 🤖 ANALYZE (POST)
+// 🤖 ANALYZE
 // ==========================
 app.post("/analyze", async (req, res) => {
     try {
@@ -95,8 +102,8 @@ app.post("/analyze", async (req, res) => {
         if (rsi < 30) score += 2;
         if (rsi > 70) score -= 2;
 
-        if (trend === "BUY") score += 1;
-        else score -= 1;
+        if (trend === "BUY") score++;
+        else score--;
 
         score += news;
 
@@ -104,13 +111,7 @@ app.post("/analyze", async (req, res) => {
         if (score >= 2) signal = "BUY";
         else if (score <= -2) signal = "SELL";
 
-        res.json({
-            signal,
-            price,
-            rsi,
-            news,
-            score
-        });
+        res.json({ signal, price });
 
     } catch {
         res.json({ signal: "ERROR" });
@@ -118,21 +119,52 @@ app.post("/analyze", async (req, res) => {
 });
 
 // ==========================
-// 💰 TRADE
+// 💰 TRADE + SAVE DB
 // ==========================
 app.post("/trade", async (req, res) => {
     try {
+        const { side } = req.body;
+
         const price = await getPrice(SYMBOL);
         const quantity = (MAX_TRADE_USDT / price).toFixed(6);
 
         const order = await client.order({
             symbol: SYMBOL,
-            side: req.body.side,
+            side,
             type: "MARKET",
             quantity
         });
 
-        res.json({ status: "SUCCESS", order });
+        // 🔍 GET LAST TRADE
+        const lastTrade = await Trade.findOne().sort({ _id: -1 });
+
+        let profit = 0;
+
+        if (lastTrade) {
+            if (lastTrade.side === "BUY" && side === "SELL") {
+                profit = (price - lastTrade.price) * quantity;
+            }
+
+            if (lastTrade.side === "SELL" && side === "BUY") {
+                profit = (lastTrade.price - price) * quantity;
+            }
+        }
+
+        // 💾 SAVE TO DB
+        const newTrade = new Trade({
+            side,
+            price,
+            quantity,
+            profit,
+            time: new Date().toLocaleString()
+        });
+
+        await newTrade.save();
+
+        res.json({
+            status: "SUCCESS",
+            profit
+        });
 
     } catch (err) {
         res.json({ status: "FAILED", error: err.message });
@@ -140,27 +172,23 @@ app.post("/trade", async (req, res) => {
 });
 
 // ==========================
-// 💰 BALANCE
+// 📜 HISTORY FROM DB
 // ==========================
-app.get("/balance", async (req, res) => {
-    try {
-        const acc = await client.accountInfo();
-        const usdt = acc.balances.find(b => b.asset === "USDT");
-
-        res.json({ free: usdt ? usdt.free : 0 });
-
-    } catch {
-        res.json({ free: 0 });
-    }
+app.get("/history", async (req, res) => {
+    const trades = await Trade.find().sort({ _id: -1 });
+    res.json(trades);
 });
 
 // ==========================
-// ❌ HANDLE WRONG ROUTES
+// 💰 TOTAL PROFIT
 // ==========================
-app.use((req, res) => {
-    res.status(404).json({
-        error: "Route not found. Use /analyze"
-    });
+app.get("/profit", async (req, res) => {
+    const trades = await Trade.find();
+
+    let total = 0;
+    trades.forEach(t => total += t.profit || 0);
+
+    res.json({ totalProfit: total.toFixed(2) });
 });
 
 // ==========================
@@ -169,5 +197,5 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("🚀 Server running on port " + PORT);
+    console.log("🚀 Server running with MongoDB");
 });
