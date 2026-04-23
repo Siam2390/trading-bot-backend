@@ -1,135 +1,52 @@
-require("dotenv").config();
+// server.js
+
 const express = require("express");
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const axios = require("axios");
+require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 
-// ==========================
-// 🗄️ MONGODB
-// ==========================
-mongoose.connect(process.env.MONGO_URI)
-.then(() => console.log("✅ MongoDB Connected"))
-.catch(err => console.log(err));
-
-// ==========================
-// 👤 USER SCHEMA
-// ==========================
-const userSchema = new mongoose.Schema({
-    email: String,
-    password: String
-});
-
-const User = mongoose.model("User", userSchema);
-
-// ==========================
-// 🔐 AUTH
-// ==========================
-function auth(req, res, next) {
-    const token = req.headers["authorization"];
-
-    if (!token) return res.status(401).json({ error: "No token" });
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
-        next();
-    } catch {
-        res.status(401).json({ error: "Invalid token" });
-    }
-}
-
-// ==========================
-// 🏠 HOME
-// ==========================
+// ✅ TEST ROUTE (to check server)
 app.get("/", (req, res) => {
-    res.send("🚀 Backend Running");
+    res.send("Backend is running ✅");
 });
 
-// ==========================
-// 🔧 FIX: LOGIN GET (BROWSER)
-// ==========================
-app.get("/login", (req, res) => {
-    res.send("⚠️ Use POST method to login (not GET)");
-});
+// ✅ AI TRADE ROUTE
+app.post("/ai-trade", async (req, res) => {
 
-// ==========================
-// 📝 SIGNUP
-// ==========================
-app.post("/signup", async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const prices = req.body.prices;
 
-        const hashed = await bcrypt.hash(password, 10);
-
-        const user = new User({
-            email,
-            password: hashed
-        });
-
-        await user.save();
-
-        res.json({ status: "User created" });
-
-    } catch {
-        res.json({ error: "Signup failed" });
-    }
-});
-
-// ==========================
-// 🔑 LOGIN (REAL)
-// ==========================
-app.post("/login", async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        const user = await User.findOne({ email });
-
-        if (!user) {
-            return res.json({ error: "User not found" });
+        if (!prices || prices.length === 0) {
+            return res.status(400).json({
+                error: "No prices provided"
+            });
         }
 
-        const match = await bcrypt.compare(password, user.password);
-
-        if (!match) {
-            return res.json({ error: "Wrong password" });
-        }
-
-        const token = jwt.sign(
-            { id: user._id },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
+        // 🔥 CONNECT TO PYTHON AI
+        const response = await axios.post(
+            "http://10.0.2.2:5001/predict",   // IMPORTANT
+            { prices: prices }
         );
 
-        res.json({ token });
+        return res.json({
+            signal: response.data.signal
+        });
 
-    } catch {
-        res.json({ error: "Login failed" });
+    } catch (error) {
+        console.log("AI ERROR:", error.message);
+
+        return res.status(500).json({
+            signal: "HOLD",
+            error: "AI failed"
+        });
     }
 });
 
-// ==========================
-// 👤 PROFILE
-// ==========================
-app.get("/profile", auth, async (req, res) => {
-    const user = await User.findById(req.user.id).select("-password");
-    res.json(user);
-});
-
-// ==========================
-// ❌ 404
-// ==========================
-app.use((req, res) => {
-    res.status(404).json({ error: "Route not found" });
-});
-
-// ==========================
-// 🚀 START
-// ==========================
+// ✅ START SERVER
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("🚀 Server running with login fix");
+    console.log(`Server running on port ${PORT}`);
 });
