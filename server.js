@@ -7,7 +7,7 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
-// ✅ TEST ROUTE (to check server)
+// ✅ TEST ROUTE (open in browser)
 app.get("/", (req, res) => {
     res.send("Backend is running ✅");
 });
@@ -18,26 +18,32 @@ app.post("/ai-trade", async (req, res) => {
     try {
         const prices = req.body.prices;
 
+        // ❗ check data
         if (!prices || prices.length === 0) {
             return res.status(400).json({
-                error: "No prices provided"
+                signal: "HOLD",
+                error: "No price data"
             });
         }
 
-        // 🔥 CONNECT TO PYTHON AI
-        const response = await axios.post(
-            "http://10.0.2.2:5001/predict",   // IMPORTANT
+        // ✅ CONNECT TO PYTHON AI (LOCAL)
+        const aiResponse = await axios.post(
+            "http://127.0.0.1:5001/predict",
             { prices: prices }
         );
 
-        return res.json({
-            signal: response.data.signal
+        const signal = aiResponse.data.signal || "HOLD";
+
+        res.json({
+            signal: signal
         });
 
     } catch (error) {
+
         console.log("AI ERROR:", error.message);
 
-        return res.status(500).json({
+        // ❗ NEVER CRASH APP
+        res.status(500).json({
             signal: "HOLD",
             error: "AI failed"
         });
