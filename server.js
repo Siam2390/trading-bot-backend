@@ -1,46 +1,38 @@
 const express = require("express");
-const axios = require("axios");
 const Binance = require("node-binance-api");
 
 const app = express();
 app.use(express.json());
 
-// 🔐 PUT YOUR KEYS HERE
+// 🔐 PUT YOUR BINANCE TESTNET KEYS
 const binance = new Binance().options({
     APIKEY: "YOUR_API_KEY",
     APISECRET: "YOUR_SECRET_KEY",
     useServerTime: true,
-    test: true // ✅ TEST MODE (SAFE)
+    test: true // SAFE MODE
 });
 
 // ✅ HOME
 app.get("/", (req, res) => {
-    res.send("Binance Auto Trading Running ✅");
+    res.send("Server Running ✅");
 });
 
-// ✅ AUTO TRADE
+// ✅ AUTO TRADE (NO AI FOR NOW → NO CRASH)
 app.post("/auto-trade", async (req, res) => {
 
     try {
-        const prices = req.body.prices;
 
-        // 🔥 GET AI SIGNAL
-        const ai = await axios.post("http://127.0.0.1:5001/predict", {
-            prices: prices
-        });
-
-        const signal = ai.data.signal || "HOLD";
+        // 🔥 TEMP SIGNAL (SAFE TEST)
+        const signal = "BUY";
 
         let result = "No Trade";
 
-        // ✅ EXECUTE TRADE
         if (signal === "BUY") {
-
             await binance.marketBuy("BTCUSDT", 0.001);
             result = "BUY Order Placed";
+        }
 
-        } else if (signal === "SELL") {
-
+        if (signal === "SELL") {
             await binance.marketSell("BTCUSDT", 0.001);
             result = "SELL Order Placed";
         }
@@ -55,12 +47,11 @@ app.post("/auto-trade", async (req, res) => {
         console.log(error.body || error.message);
 
         res.status(500).json({
-            signal: "HOLD",
+            signal: "ERROR",
             result: "Trade Failed"
         });
     }
 });
 
-app.listen(3000, () => {
-    console.log("Server running on 3000");
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Server running on " + PORT));
