@@ -2,57 +2,63 @@
 
 const express = require("express");
 const axios = require("axios");
-require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 
-// ✅ TEST ROUTE (open in browser)
+// 🔐 SAFE MODE (true = no real trade)
+const TEST_MODE = true;
+
+// ✅ HOME
 app.get("/", (req, res) => {
-    res.send("Backend is running ✅");
+    res.send("Auto Trading Server Running ✅");
 });
 
-// ✅ AI TRADE ROUTE
-app.post("/ai-trade", async (req, res) => {
+// ✅ AUTO TRADE API
+app.post("/auto-trade", async (req, res) => {
 
     try {
         const prices = req.body.prices;
 
-        // ❗ check data
-        if (!prices || prices.length === 0) {
-            return res.status(400).json({
-                signal: "HOLD",
-                error: "No price data"
-            });
-        }
-
-        // ✅ CONNECT TO PYTHON AI (LOCAL)
-        const aiResponse = await axios.post(
-            "http://127.0.0.1:5001/predict",
-            { prices: prices }
-        );
-
-        const signal = aiResponse.data.signal || "HOLD";
-
-        res.json({
-            signal: signal
+        // 🔥 GET AI SIGNAL
+        const ai = await axios.post("http://127.0.0.1:5001/predict", {
+            prices: prices
         });
 
-    } catch (error) {
+        const signal = ai.data.signal || "HOLD";
 
-        console.log("AI ERROR:", error.message);
+        let tradeResult = "No Trade";
 
-        // ❗ NEVER CRASH APP
+        // ✅ AUTO EXECUTE
+        if (signal === "BUY") {
+
+            if (TEST_MODE) {
+                tradeResult = "TEST BUY executed";
+            } else {
+                // 👉 REAL BINANCE API HERE (later)
+                tradeResult = "REAL BUY executed";
+            }
+
+        } else if (signal === "SELL") {
+
+            if (TEST_MODE) {
+                tradeResult = "TEST SELL executed";
+            } else {
+                tradeResult = "REAL SELL executed";
+            }
+        }
+
+        res.json({
+            signal: signal,
+            result: tradeResult
+        });
+
+    } catch (err) {
         res.status(500).json({
             signal: "HOLD",
-            error: "AI failed"
+            result: "Error"
         });
     }
 });
 
-// ✅ START SERVER
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+app.listen(3000, () => console.log("Server running on 3000"));
