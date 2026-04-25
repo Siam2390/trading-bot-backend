@@ -26,7 +26,7 @@ app.post("/auto-trade", async (req, res) => {
 
         // 🔥 CALL ONLINE AI (IMPORTANT)
         const aiResponse = await axios.post(
-            "https://trading-ai-model.onrender.com/predict", // 🔁 YOUR AI LINK
+            "https://trading-ai-model-kpfw.onrender.com/predict", // 🔁 YOUR AI LINK
             { prices: prices }
         );
 
