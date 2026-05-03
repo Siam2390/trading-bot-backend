@@ -1,67 +1,58 @@
+// server.js (SAFE TESTNET TRADING)
+
 const express = require("express");
-const axios = require("axios");
 const Binance = require("node-binance-api");
 
 const app = express();
 app.use(express.json());
 
-// 🔐 PUT YOUR BINANCE TESTNET KEYS
+// 🔐 TESTNET KEYS (PUT YOURS HERE)
 const binance = new Binance().options({
-    APIKEY: "YOUR_API_KEY",
-    APISECRET: "YOUR_SECRET_KEY",
-    useServerTime: true,
-    test: true // ✅ keep true (SAFE)
+  APIKEY: "YOUR_API_KEY",
+  APISECRET: "YOUR_SECRET_KEY",
+  useServerTime: true,
+  test: true // ✅ VERY IMPORTANT (TESTNET)
 });
 
-// ✅ HOME
+// ✅ CHECK SERVER
 app.get("/", (req, res) => {
-    res.send("Server Running with AI ✅");
+  res.send("Trading Bot Running (TESTNET)");
 });
 
-// ✅ AUTO TRADE (AI + BINANCE)
-app.post("/auto-trade", async (req, res) => {
-
-    try {
-        const prices = req.body.prices;
-
-        // 🔥 CALL ONLINE AI (IMPORTANT)
-        const aiResponse = await axios.post(
-            "https://trading-ai-model-kpfw.onrender.com/predict", // 🔁 YOUR AI LINK
-            { prices: prices }
-        );
-
-        const signal = aiResponse.data.signal || "HOLD";
-
-        let result = "No Trade";
-
-        // ✅ EXECUTE TRADE
-        if (signal === "BUY") {
-            await binance.marketBuy("BTCUSDT", 0.001);
-            result = "BUY Order Placed";
-        }
-
-        if (signal === "SELL") {
-            await binance.marketSell("BTCUSDT", 0.001);
-            result = "SELL Order Placed";
-        }
-
-        res.json({
-            signal: signal,
-            result: result
-        });
-
-    } catch (error) {
-
-        console.log(error.response?.data || error.message);
-
-        res.status(500).json({
-            signal: "HOLD",
-            result: "Error in AI/Trade"
-        });
-    }
+// ✅ GET BALANCE
+app.get("/balance", async (req, res) => {
+  try {
+    const balances = await binance.balance();
+    res.json(balances);
+  } catch (e) {
+    res.json({ error: e.message });
+  }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log("Server running on " + PORT);
+// ✅ BUY ORDER (SAFE)
+app.post("/buy", async (req, res) => {
+  try {
+    const { symbol, quantity } = req.body;
+
+    const order = await binance.marketBuy(symbol, quantity);
+
+    res.json(order);
+  } catch (e) {
+    res.json({ error: e.message });
+  }
 });
+
+// ✅ SELL ORDER (SAFE)
+app.post("/sell", async (req, res) => {
+  try {
+    const { symbol, quantity } = req.body;
+
+    const order = await binance.marketSell(symbol, quantity);
+
+    res.json(order);
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
+app.listen(3000, () => console.log("Server running on port 3000"));
